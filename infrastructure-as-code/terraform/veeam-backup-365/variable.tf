@@ -3,11 +3,47 @@ variable "client_name" {
   type        = string
 }
 
+variable "subscription_id" {
+  description = "Azure Subscription ID"
+  type        = string
+}
+
 variable "location" {
   description = "Azure region for deployment."
   type        = string
   default     = "UK South"
 }
+
+variable "tags" {
+  description = "Tags to apply to all resources."
+  type        = map(string)
+  default     = {
+    Environment = "Production"
+    ManagedBy   = "Terraform"
+  }
+}
+
+variable "image_publisher" {
+  description = "Publisher of the image"
+  type        = string
+}
+
+variable "image_offer" {
+  description = "Offer name for the image"
+  type        = string
+}
+
+variable "image_sku" {
+  description = "SKU for the image"
+  type        = string
+}
+
+variable "image_version" {
+  description = "version for the image"
+  type        = string
+  default = "latest"
+}
+
 
 variable "vm_size" {
   description = "Size of the VM."
@@ -31,3 +67,10 @@ variable "backup_disk_size_gb" {
   type        = number
   default     = 1024
 }
+
+variable "github_raw_url" {
+  description = "Raw GitHub URL of the PowerShell script"
+  type        = string
+  default     = "https://raw.githubusercontent.com/nate8523/cloud-scripts/refs/heads/main/infrastructure-as-code/terraform/veeam-backup-365/initialize-disk.ps1"
+}
+
