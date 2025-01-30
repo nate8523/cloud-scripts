@@ -7,7 +7,7 @@ provider "azurerm" {
 resource "azurerm_resource_group" "rg" {
   name     = "${var.client_name}-veeam-backup-rg"
   location = var.location
-  tags = var.tags
+  tags     = var.tags
 }
 
 resource "azurerm_virtual_network" "vnet" {
@@ -15,7 +15,7 @@ resource "azurerm_virtual_network" "vnet" {
   address_space       = ["10.0.0.0/16"]
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-  tags = var.tags
+  tags                = var.tags
 }
 
 resource "azurerm_subnet" "subnet" {
@@ -25,20 +25,75 @@ resource "azurerm_subnet" "subnet" {
   address_prefixes     = ["10.0.1.0/24"]
 }
 
+resource "azurerm_network_security_group" "veeam_nsg" {
+  name                = "${var.client_name}-veeam-nsg"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  tags                = var.tags
+}
+
+resource "azurerm_network_security_rule" "allow_veeam_tcp" {
+  name                        = "Allow-Veeam-TCP"
+  priority                    = 1010
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "6180"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.rg.name
+  network_security_group_name = azurerm_network_security_group.veeam_nsg.name
+}
+
+resource "azurerm_network_security_rule" "allow_veeam_udp" {
+  name                        = "Allow-Veeam-UDP"
+  priority                    = 1011
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Udp"
+  source_port_range           = "*"
+  destination_port_range      = "6180"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.rg.name
+  network_security_group_name = azurerm_network_security_group.veeam_nsg.name
+}
+
+resource "azurerm_network_security_rule" "allow_rdp" {
+  name                        = "Allow-RDP"
+  priority                    = 1012
+  direction                   = "Inbound"
+  access                      = "Allow"
+  protocol                    = "Tcp"
+  source_port_range           = "*"
+  destination_port_range      = "3389"
+  source_address_prefix       = "*"
+  destination_address_prefix  = "*"
+  resource_group_name         = azurerm_resource_group.rg.name
+  network_security_group_name = azurerm_network_security_group.veeam_nsg.name
+}
+
+resource "azurerm_subnet_network_security_group_association" "veeam_nsg_association" {
+  subnet_id                 = azurerm_subnet.subnet.id
+  network_security_group_id = azurerm_network_security_group.veeam_nsg.id
+}
+
+
 resource "azurerm_public_ip" "public_ip" {
   name                = "${var.client_name}-veeam-public-ip"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-  allocation_method   = "Dynamic"
-  sku = "Basic"
-  tags = var.tags
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  tags                = var.tags
 }
 
 resource "azurerm_network_interface" "nic" {
   name                = "${var.client_name}-veeam-nic"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-  tags = var.tags
+  tags                = var.tags
 
   ip_configuration {
     name                          = "internal"
@@ -48,8 +103,14 @@ resource "azurerm_network_interface" "nic" {
   }
 }
 
+resource "random_string" "storage_suffix" {
+  length  = 6
+  special = false
+  upper   = false
+}
+
 resource "azurerm_storage_account" "diag_storage" {
-  name                     = "${var.client_name}diagstg"
+  name                     = "${var.client_name}diag${random_string.storage_suffix.result}"
   resource_group_name      = azurerm_resource_group.rg.name
   location                 = azurerm_resource_group.rg.location
   account_tier             = "Standard"
@@ -70,7 +131,7 @@ resource "azurerm_virtual_machine" "vm" {
   resource_group_name   = azurerm_resource_group.rg.name
   network_interface_ids = [azurerm_network_interface.nic.id]
   vm_size               = var.vm_size
-  tags = var.tags
+  tags                  = var.tags
 
   storage_image_reference {
     publisher = var.image_publisher
@@ -95,7 +156,7 @@ resource "azurerm_virtual_machine" "vm" {
   }
 
   os_profile {
-    computer_name  = "veeam-backup"
+    computer_name  = var.computer_name
     admin_username = var.admin_username
     admin_password = var.admin_password
   }
@@ -104,7 +165,7 @@ resource "azurerm_virtual_machine" "vm" {
     provision_vm_agent = true
   }
 
-    boot_diagnostics {
+  boot_diagnostics {
     enabled     = true
     storage_uri = azurerm_storage_account.diag_storage.primary_blob_endpoint
   }
@@ -118,13 +179,13 @@ resource "azurerm_managed_disk" "backup_disk" {
   storage_account_type = "Premium_LRS"
   create_option        = "Empty"
   disk_size_gb         = var.backup_disk_size_gb
-  tags = var.tags
+  tags                 = var.tags
 }
 
 resource "azurerm_virtual_machine_data_disk_attachment" "backup_disk_attach" {
   managed_disk_id    = azurerm_managed_disk.backup_disk.id
   virtual_machine_id = azurerm_virtual_machine.vm.id
-  lun                = "01"
+  lun                = "0"
   caching            = "ReadWrite"
 }
 
@@ -137,7 +198,7 @@ resource "azurerm_virtual_machine_extension" "disk_mount_script" {
 
   settings = <<SETTINGS
   {
-    "commandToExecute": "powershell -ExecutionPolicy Unrestricted -Command Invoke-WebRequest -Uri '${var.github_raw_url}' -OutFile 'C:\\AzureData\\initialize-disk.ps1'; powershell -ExecutionPolicy Unrestricted -File C:\\AzureData\\initialize-disk.ps1"
+    "commandToExecute": "powershell -ExecutionPolicy Unrestricted -Command New-Item -Path 'C:\\AzureData' -ItemType Directory -Force; Invoke-WebRequest -Uri '${var.github_raw_url}' -OutFile 'C:\\AzureData\\initialize-disk.ps1'; powershell -ExecutionPolicy Unrestricted -File 'C:\\AzureData\\initialize-disk.ps1'"
   }
   SETTINGS
 

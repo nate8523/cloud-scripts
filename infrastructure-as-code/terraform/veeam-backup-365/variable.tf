@@ -17,7 +17,7 @@ variable "location" {
 variable "tags" {
   description = "Tags to apply to all resources."
   type        = map(string)
-  default     = {
+  default = {
     Environment = "Production"
     ManagedBy   = "Terraform"
   }
@@ -41,7 +41,7 @@ variable "image_sku" {
 variable "image_version" {
   description = "version for the image"
   type        = string
-  default = "latest"
+  default     = "latest"
 }
 
 
@@ -60,6 +60,11 @@ variable "admin_password" {
   description = "Admin password for the VM."
   type        = string
   sensitive   = true
+}
+
+variable "computer_name" {
+  description = "Windows computer name"
+  type        = string
 }
 
 variable "backup_disk_size_gb" {
