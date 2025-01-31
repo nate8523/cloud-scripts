@@ -1,30 +1,56 @@
 # Define the flag file to prevent duplicate execution
 $FlagFile = "C:\AzureData\disk_initialized.flag"
 
-# Function to check and start Veeam services
-function Start-VeeamServices {
+# Function to start and wait for Veeam services
+function Start-And-Wait-VeeamServices {
     $veeamServices = @(
         "Veeam.Archiver.Service",
         # "Veeam.Archiver.RESTful.Service",
         "Veeam.Archiver.Proxy.Service"
     )
 
+    # Start all stopped Veeam services
     foreach ($service in $veeamServices) {
         $serviceStatus = Get-Service -Name $service -ErrorAction SilentlyContinue
         if ($serviceStatus -and $serviceStatus.Status -ne 'Running') {
             Write-Host "Starting Veeam service: $service"
-            Start-Service -Name $service
+            Start-Service -Name $service -ErrorAction SilentlyContinue
         }
+    }
+
+    # Wait for all services to be fully running
+    $maxWaitTime = 300  # Maximum wait time in seconds (5 minutes)
+    $elapsedTime = 0
+    $allRunning = $false
+
+    while (-not $allRunning -and $elapsedTime -lt $maxWaitTime) {
+        Start-Sleep -Seconds 10
+        $elapsedTime += 10
+
+        $allRunning = $true
+        foreach ($service in $veeamServices) {
+            $serviceStatus = Get-Service -Name $service -ErrorAction SilentlyContinue
+            if (-not $serviceStatus -or $serviceStatus.Status -ne 'Running') {
+                Write-Host "Veeam service $service is NOT running yet. Waiting..."
+                $allRunning = $false
+            }
+        }
+
+        if ($allRunning) {
+            Write-Host "All Veeam services are now running."
+        }
+    }
+
+    if (-not $allRunning) {
+        Write-Host "Veeam services failed to start within the timeout period. Exiting..."
+        exit 1
     }
 }
 
-# Ensure Veeam services are running
-Start-VeeamServices
+# Ensure Veeam services are running before proceeding
+Start-And-Wait-VeeamServices
 
-# Wait for services to be fully operational
-Start-Sleep -Seconds 30
-
-# Get all uninitialized (RAW) or unallocated disks (excluding OS Disk 0 & Temp Disk 1)
+# Get all uninitialized (RAW) disks (excluding OS Disk 0 & Temp Disk 1)
 $UnallocatedDisks = Get-Disk | Where-Object { $_.PartitionStyle -eq 'RAW' -and $_.Number -ge 2 }
 
 if ((Test-Path $FlagFile) -and (-not $UnallocatedDisks)) {
@@ -33,7 +59,9 @@ if ((Test-Path $FlagFile) -and (-not $UnallocatedDisks)) {
 }
 
 # Initialize all uninitialized (RAW) disks
-$UnallocatedDisks | ForEach-Object { Initialize-Disk -Number $_.Number -PartitionStyle GPT -Confirm:$false }
+$UnallocatedDisks | ForEach-Object { 
+    Initialize-Disk -Number $_.Number -PartitionStyle GPT -Confirm:$false 
+}
 
 # Get all online disks that do not have a drive letter and are not partitioned
 $onlineDisksWithoutDriveLetter = Get-Disk | Where-Object { 
@@ -61,7 +89,7 @@ foreach ($disk in $onlineDisksWithoutDriveLetter) {
         $partition | Format-Volume -FileSystem ReFS -AllocationUnitSize 64KB -Confirm:$false
         Write-Host "Disk $($disk.Number) formatted as ReFS and assigned drive letter: $driveLetter"
     } else {
-        Write-Host "Disk $($disk.Number) is already partitioned. Skipping partition creation."
+        Write-Host "ℹ️ Disk $($disk.Number) is already partitioned. Skipping partition creation."
     }
 }
 

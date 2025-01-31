@@ -133,6 +133,9 @@ resource "azurerm_virtual_machine" "vm" {
   vm_size               = var.vm_size
   tags                  = var.tags
 
+  delete_os_disk_on_termination = true   # Ensures OS disk is deleted when the VM is destroyed
+  delete_data_disks_on_termination = true # Ensures attached data disks are deleted when VM is destroyed
+
   storage_image_reference {
     publisher = var.image_publisher
     offer     = var.image_offer
@@ -176,7 +179,7 @@ resource "azurerm_managed_disk" "backup_disk" {
   name                 = "${var.client_name}-veeam-backup-disk"
   location             = azurerm_resource_group.rg.location
   resource_group_name  = azurerm_resource_group.rg.name
-  storage_account_type = "Premium_LRS"
+  storage_account_type = "Standard_LRS"
   create_option        = "Empty"
   disk_size_gb         = var.backup_disk_size_gb
   tags                 = var.tags
