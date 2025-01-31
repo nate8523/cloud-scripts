@@ -4,9 +4,9 @@ $FlagFile = "C:\AzureData\disk_initialized.flag"
 # Function to start and wait for Veeam services
 function Start-And-Wait-VeeamServices {
     $veeamServices = @(
-        "Veeam.Archiver.Service",
+        "Veeam.Archiver.Service"
         # "Veeam.Archiver.RESTful.Service",
-        "Veeam.Archiver.Proxy.Service"
+        # "Veeam.Archiver.Proxy.Service"
     )
 
     # Start all stopped Veeam services
@@ -89,7 +89,7 @@ foreach ($disk in $onlineDisksWithoutDriveLetter) {
         $partition | Format-Volume -FileSystem ReFS -AllocationUnitSize 64KB -Confirm:$false
         Write-Host "Disk $($disk.Number) formatted as ReFS and assigned drive letter: $driveLetter"
     } else {
-        Write-Host "ℹ️ Disk $($disk.Number) is already partitioned. Skipping partition creation."
+        Write-Host "Disk $($disk.Number) is already partitioned. Skipping partition creation."
     }
 }
 
