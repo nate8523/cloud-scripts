@@ -1,19 +1,44 @@
 # Define the flag file to prevent duplicate execution
 $FlagFile = "C:\AzureData\disk_initialized.flag"
 
-# Get all uninitialized (RAW) or unallocated disks
-$UnallocatedDisks = Get-Disk | Where-Object { $_.PartitionStyle -eq 'RAW' -or $_.Size -gt 0 -and $_.PartitionStyle -eq 'Unknown' }
+# Function to check and start Veeam services
+function Start-VeeamServices {
+    $veeamServices = @(
+        "Veeam.Archiver.Service",
+        # "Veeam.Archiver.RESTful.Service",
+        "Veeam.Archiver.Proxy.Service"
+    )
+
+    foreach ($service in $veeamServices) {
+        $serviceStatus = Get-Service -Name $service -ErrorAction SilentlyContinue
+        if ($serviceStatus -and $serviceStatus.Status -ne 'Running') {
+            Write-Host "Starting Veeam service: $service"
+            Start-Service -Name $service
+        }
+    }
+}
+
+# Ensure Veeam services are running
+Start-VeeamServices
+
+# Wait for services to be fully operational
+Start-Sleep -Seconds 30
+
+# Get all uninitialized (RAW) or unallocated disks (excluding OS Disk 0 & Temp Disk 1)
+$UnallocatedDisks = Get-Disk | Where-Object { $_.PartitionStyle -eq 'RAW' -and $_.Number -ge 2 }
 
 if ((Test-Path $FlagFile) -and (-not $UnallocatedDisks)) {
     Write-Host "Disk initialization already completed and no unallocated disks found. Exiting..."
     exit 0
 }
 
-# Initialize all uninitialized (RAW) or unallocated disks
+# Initialize all uninitialized (RAW) disks
 $UnallocatedDisks | ForEach-Object { Initialize-Disk -Number $_.Number -PartitionStyle GPT -Confirm:$false }
 
-# Get all disks that are online but do not have a drive letter and are not partitioned
-$onlineDisksWithoutDriveLetter = Get-Disk | Where-Object { $_.PartitionStyle -eq 'GPT' -and $_.IsOffline -eq $false -and !$_.DriveLetter -and $_.LargestFreeExtent -gt 0 }
+# Get all online disks that do not have a drive letter and are not partitioned
+$onlineDisksWithoutDriveLetter = Get-Disk | Where-Object { 
+    $_.PartitionStyle -eq 'GPT' -and $_.IsOffline -eq $false -and !$_.DriveLetter -and $_.LargestFreeExtent -gt 0 -and $_.Number -ge 2
+}
 
 # Function to get the first available drive letter (starting from F)
 function Get-FirstUnusedDriveLetter {
@@ -57,11 +82,11 @@ if (-not $proxy) {
 }
 
 # Add each formatted disk as a Veeam 365 backup repository
-$initializedDisks = Get-Disk | Where-Object { $_.PartitionStyle -eq 'GPT' -and $_.IsOffline -eq $false }
+$initializedDisks = Get-Disk | Where-Object { $_.PartitionStyle -eq 'GPT' -and $_.IsOffline -eq $false -and $_.Number -ge 2 }
 foreach ($disk in $initializedDisks) {
     $driveLetter = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.DriveLetter } | Select-Object -ExpandProperty DriveLetter
     if ($driveLetter) {
-        $folderPath = $driveLetter + ":\"
+        $folderPath = $driveLetter + ":\" 
         Add-VBORepository -Proxy $proxy -Name "Local Backups $folderPath" -Path $folderPath
         Write-Host "Veeam 365 repository added for disk $($disk.Number) at $folderPath"
     } else {
